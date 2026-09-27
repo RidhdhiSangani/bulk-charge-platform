@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.github
+coverage
+*.md
+docs
+*.pdf
+.env
+test
+loadtest
+postman

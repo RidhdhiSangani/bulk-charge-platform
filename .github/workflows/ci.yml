@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Typecheck, build, unit + integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: shipmnts
+          POSTGRES_PASSWORD: shipmnts
+          POSTGRES_DB: bulk_charge
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U shipmnts -d bulk_charge"
+          --health-interval 3s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://shipmnts:shipmnts@localhost:5432/bulk_charge?connection_limit=20
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Unit tests
+        run: npm test
+      - name: Migrate + seed
+        run: npx prisma migrate deploy && node dist/seed/seed.js
+      - name: Integration tests (real Postgres + Redis)
+        run: npx jest --config ./test/jest-e2e.json --runInBand --forceExit
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t bulk-charge-platform .

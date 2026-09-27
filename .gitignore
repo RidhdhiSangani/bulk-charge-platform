@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+.env
+*.log
+.DS_Store
+*.tsbuildinfo
+# assignment / planning documents are not part of the repository
+*.pdf

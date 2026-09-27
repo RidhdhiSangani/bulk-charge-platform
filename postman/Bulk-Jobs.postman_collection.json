@@ -1,0 +1,1057 @@
+{
+  "info": {
+    "name": "Bulk Charge Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Every endpoint of the bulk job API. Run folders top to bottom; job ids are captured into collection variables by the test scripts. Local: docker compose up -d --build (baseUrl http://localhost:3000). Live: select the 'Bulk Charge - Live (Render)' environment, or set baseUrl to the deployed URL. Note: on Render's free plan the first request after ~15 min idle takes ~50 s while the service wakes up."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "tenantId",
+      "value": "tnt_demo"
+    },
+    {
+      "key": "jobId",
+      "value": ""
+    },
+    {
+      "key": "transitionJobId",
+      "value": ""
+    },
+    {
+      "key": "scheduledJobId",
+      "value": ""
+    },
+    {
+      "key": "entriesCursor",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "Health (DB + Redis + registered actions)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Postgres, Redis and the entity/action pairs the engine has registered."
+          }
+        },
+        {
+          "name": "API docs (Swagger UI) - open in browser",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/docs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "docs"
+              ]
+            },
+            "description": "Interactive API docs; OpenAPI JSON at /docs-json"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Apply charge (Action 1)",
+      "item": [
+        {
+          "name": "Create charge job (Idempotency-Key)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "fsc-demo-1"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "Creates an apply_charge job selected by filter. The first call returns 201; a retry with the same key returns 200 + the original job.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"origin_port\": \"INNSA\",\n    \"status\": \"in_transit\"\n  },\n  \"params\": {\n    \"charge_code\": \"FSC\",\n    \"basis\": \"per_kg\",\n    \"rate\": 0.12,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.id) pm.collectionVariables.set('jobId', b.id);",
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "pm.test('201 new or 200 replay', () => pm.expect([200, 201]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replay same Idempotency-Key -> 200 original job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "fsc-demo-1"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"origin_port\": \"INNSA\",\n    \"status\": \"in_transit\"\n  },\n  \"params\": {\n    \"charge_code\": \"FSC\",\n    \"basis\": \"per_kg\",\n    \"rate\": 0.12,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 replay, same job', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('jobId')); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Same key, different body -> 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "fsc-demo-1"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"origin_port\": \"INNSA\",\n    \"status\": \"in_transit\"\n  },\n  \"params\": {\n    \"charge_code\": \"FSC\",\n    \"basis\": \"per_kg\",\n    \"rate\": 9.99,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Job detail (live progress, ETA, batches, tenant rate)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Live progress stream (SSE) - pushes events until done",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}",
+                "events"
+              ]
+            },
+            "description": "Server-Sent Events: a `progress` event every second, then a `done` event when the job finishes, and the stream closes. Terminal: curl -N {{baseUrl}}/v1/bulk-jobs/<id>/events"
+          }
+        },
+        {
+          "name": "Summary (success / failed / skipped + top reasons)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}",
+                "summary"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Entries: failed only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}/entries?outcome=failed&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}",
+                "entries"
+              ],
+              "query": [
+                {
+                  "key": "outcome",
+                  "value": "failed"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); if (b.next_cursor) pm.collectionVariables.set('entriesCursor', b.next_cursor);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Entries: next page (cursor)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}/entries?outcome=failed&limit=20&cursor={{entriesCursor}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}",
+                "entries"
+              ],
+              "query": [
+                {
+                  "key": "outcome",
+                  "value": "failed"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "cursor",
+                  "value": "{{entriesCursor}}"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Entries: success",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}/entries?outcome=success&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}",
+                "entries"
+              ],
+              "query": [
+                {
+                  "key": "outcome",
+                  "value": "success"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Re-run same charge (new key) -> all skipped charge_already_applied",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "fsc-rerun-{{$timestamp}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "Entity-level idempotency: (shipment_id, charge_code) already exists -> skipped. Check Summary after a second.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"origin_port\": \"INNSA\",\n    \"status\": \"in_transit\"\n  },\n  \"params\": {\n    \"charge_code\": \"FSC\",\n    \"basis\": \"per_kg\",\n    \"rate\": 0.12,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.id) pm.collectionVariables.set('jobId', b.id);",
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Per-container charge in EUR on imports",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"trade_type\": \"import\"\n  },\n  \"params\": {\n    \"charge_code\": \"THC\",\n    \"basis\": \"per_container\",\n    \"rate\": 25,\n    \"currency\": \"EUR\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.id) pm.collectionVariables.set('jobId', b.id);",
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inspect a shipment and its charge lines",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/shipments/SHP-000001?tenant_id={{tenantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "shipments",
+                "SHP-000001"
+              ],
+              "query": [
+                {
+                  "key": "tenant_id",
+                  "value": "{{tenantId}}"
+                }
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Transition status (Action 2)",
+      "item": [
+        {
+          "name": "Illegal transition booked -> delivered (per-entity failures)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"transition_status\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"status\": \"booked\",\n    \"origin_port\": \"SGSIN\"\n  },\n  \"params\": {\n    \"target_status\": \"delivered\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.id) pm.collectionVariables.set('transitionJobId', b.id);",
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Summary of illegal transition job",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{transitionJobId}}/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{transitionJobId}}",
+                "summary"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Legal transition booked -> in_transit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"transition_status\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"status\": \"booked\",\n    \"origin_port\": \"SGSIN\"\n  },\n  \"params\": {\n    \"target_status\": \"in_transit\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.id) pm.collectionVariables.set('transitionJobId', b.id);",
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Summary of legal transition job",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{transitionJobId}}/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{transitionJobId}}",
+                "summary"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Scheduling & cancellation",
+      "item": [
+        {
+          "name": "Schedule a job for 22 Nov 11:15pm IST",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"status\": \"arrived\"\n  },\n  \"params\": {\n    \"charge_code\": \"DEM\",\n    \"basis\": \"flat\",\n    \"rate\": 40,\n    \"currency\": \"USD\"\n  },\n  \"scheduled_at\": \"2030-11-22T23:15:00+05:30\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.id) pm.collectionVariables.set('scheduledJobId', b.id);",
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "pm.test('scheduled', () => pm.expect(pm.response.json().status).to.eql('scheduled'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List scheduled jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs?status=scheduled&tenant_id={{tenantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "scheduled"
+                },
+                {
+                  "key": "tenant_id",
+                  "value": "{{tenantId}}"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Cancel scheduled job -> 202 cancelled",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{scheduledJobId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{scheduledJobId}}",
+                "cancel"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Cancel again -> 409 already terminal",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{scheduledJobId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{scheduledJobId}}",
+                "cancel"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Start a big job (every tenant shipment) to cancel mid-run",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "Easiest to watch with a low TENANT_RATE_LIMIT_PER_MIN (e.g. 1000) or BULK_DEBUG_ENTITY_DELAY_MS=20 on the worker.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {},\n  \"params\": {\n    \"charge_code\": \"CXL{{$timestamp}}\",\n    \"basis\": \"flat\",\n    \"rate\": 5,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.id) pm.collectionVariables.set('jobId', b.id);",
+                  "pm.test('2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel running job -> 202 cancelling/cancelled",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}",
+                "cancel"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Detail after cancel (processed entities kept)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Listing & tenancy",
+      "item": [
+        {
+          "name": "List jobs (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "List jobs by status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs?status=completed&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "completed"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "List jobs by tenant (X-Tenant-Id header)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Tenant-Id",
+                "value": "{{tenantId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Other tenant cannot see this job -> 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Tenant-Id",
+                "value": "tnt_acme"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Validation errors",
+      "item": [
+        {
+          "name": "Unknown filter key -> 400 (a typo never matches everything)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"origin_prot\": \"INNSA\"\n  },\n  \"params\": {\n    \"charge_code\": \"FSC\",\n    \"basis\": \"per_kg\",\n    \"rate\": 0.12,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Unsupported action -> 400 with supported list",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"delete_everything\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"origin_port\": \"INNSA\",\n    \"status\": \"in_transit\"\n  },\n  \"params\": {\n    \"charge_code\": \"FSC\",\n    \"basis\": \"per_kg\",\n    \"rate\": 0.12,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Invalid charge params -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenantId}}\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"origin_port\": \"INNSA\",\n    \"status\": \"in_transit\"\n  },\n  \"params\": {\n    \"charge_code\": \"\",\n    \"basis\": \"per_ton\",\n    \"rate\": -1,\n    \"currency\": \"usd\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Unknown tenant -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"tnt_nope\",\n  \"action_type\": \"apply_charge\",\n  \"entity_type\": \"shipment\",\n  \"filter\": {\n    \"origin_port\": \"INNSA\",\n    \"status\": \"in_transit\"\n  },\n  \"params\": {\n    \"charge_code\": \"FSC\",\n    \"basis\": \"per_kg\",\n    \"rate\": 0.12,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Unknown job -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/bulk-jobs/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "bulk-jobs",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    }
+  ]
+}

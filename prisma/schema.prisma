@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String     @id
+  name      String
+  createdAt DateTime   @default(now()) @map("created_at")
+  shipments Shipment[]
+  jobs      BulkJob[]
+
+  @@map("tenants")
+}
+
+model Shipment {
+  id               BigInt           @id @default(autoincrement())
+  tenantId         String           @map("tenant_id")
+  tenant           Tenant           @relation(fields: [tenantId], references: [id])
+  shipmentNo       String           @map("shipment_no")
+  tradeType        String           @map("trade_type")
+  originPort       String           @map("origin_port")
+  destinationPort  String           @map("destination_port")
+  containerCount   Int              @map("container_count")
+  chargeableWeight Decimal?         @map("chargeable_weight") @db.Decimal(12, 3)
+  customerId       String           @map("customer_id")
+  status           String
+  billingCurrency  String           @map("billing_currency")
+  isBilled         Boolean          @default(false) @map("is_billed")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  charges          ShipmentCharge[]
+
+  @@unique([tenantId, shipmentNo])
+  @@index([tenantId, originPort, status, id])
+  @@index([tenantId, status, id])
+  @@index([tenantId, destinationPort, id])
+  @@map("shipments")
+}
+
+model ShipmentCharge {
+  id              BigInt   @id @default(autoincrement())
+  shipmentId      BigInt   @map("shipment_id")
+  shipment        Shipment @relation(fields: [shipmentId], references: [id])
+  chargeCode      String   @map("charge_code")
+  basis           String
+  rate            Decimal  @db.Decimal(14, 4)
+  currency        String
+  amount          Decimal  @db.Decimal(14, 4)
+  amountBilling   Decimal  @map("amount_billing") @db.Decimal(14, 4)
+  billingCurrency String   @map("billing_currency")
+  fxRate          Decimal  @map("fx_rate") @db.Decimal(18, 8)
+  bulkJobId       String?  @map("bulk_job_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([shipmentId, chargeCode])
+  @@map("shipment_charges")
+}
+
+model FxRate {
+  id            Int      @id @default(autoincrement())
+  baseCurrency  String   @map("base_currency")
+  quoteCurrency String   @map("quote_currency")
+  rate          Decimal  @db.Decimal(18, 8)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([baseCurrency, quoteCurrency])
+  @@map("fx_rates")
+}
+
+model BulkJob {
+  id                String     @id @default(uuid()) @db.Uuid
+  tenantId          String     @map("tenant_id")
+  tenant            Tenant     @relation(fields: [tenantId], references: [id])
+  actionType        String     @map("action_type")
+  entityType        String     @map("entity_type")
+  filter            Json
+  params            Json
+  status            String
+  scheduledAt       DateTime?  @map("scheduled_at")
+  startedAt         DateTime?  @map("started_at")
+  completedAt       DateTime?  @map("completed_at")
+  cancelRequestedAt DateTime?  @map("cancel_requested_at")
+  totalMatched      Int?       @map("total_matched")
+  successCount      Int        @default(0) @map("success_count")
+  failedCount       Int        @default(0) @map("failed_count")
+  skippedCount      Int        @default(0) @map("skipped_count")
+  cursorAfterId     BigInt?    @map("cursor_after_id")
+  nextBatchNo       Int        @default(0) @map("next_batch_no")
+  scanComplete      Boolean    @default(false) @map("scan_complete")
+  idempotencyKey    String?    @map("idempotency_key")
+  requestHash       String?    @map("request_hash")
+  orchestrateJobId  String?    @map("orchestrate_job_id")
+  errorMessage      String?    @map("error_message")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  batches           JobBatch[]
+  entries           JobEntry[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status])
+  @@index([status, createdAt])
+  @@map("bulk_jobs")
+}
+
+model JobBatch {
+  id           BigInt     @id @default(autoincrement())
+  jobId        String     @map("job_id") @db.Uuid
+  job          BulkJob    @relation(fields: [jobId], references: [id])
+  batchNo      Int        @map("batch_no")
+  cursorFromId BigInt     @map("cursor_from_id")
+  cursorToId   BigInt     @map("cursor_to_id")
+  entityIds    BigInt[]   @map("entity_ids")
+  status       String
+  leasedAt     DateTime?  @map("leased_at")
+  leaseOwner   String?    @map("lease_owner")
+  attemptCount Int        @default(0) @map("attempt_count")
+  queueJobId   String?    @map("queue_job_id")
+  checkedAt    DateTime?  @map("checked_at")
+  completedAt  DateTime?  @map("completed_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  entries      JobEntry[]
+
+  @@unique([jobId, batchNo])
+  @@index([status, id])
+  @@index([jobId, status])
+  @@map("job_batches")
+}
+
+model JobEntry {
+  id          BigInt   @id @default(autoincrement())
+  jobId       String   @map("job_id") @db.Uuid
+  job         BulkJob  @relation(fields: [jobId], references: [id])
+  batchId     BigInt   @map("batch_id")
+  batch       JobBatch @relation(fields: [batchId], references: [id])
+  entityType  String   @map("entity_type")
+  entityId    BigInt   @map("entity_id")
+  entityRef   String   @map("entity_ref")
+  outcome     String
+  reason      String?
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@unique([jobId, entityId])
+  @@index([jobId, outcome, id])
+  @@map("job_entries")
+}

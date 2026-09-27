@@ -1,0 +1,50 @@
+# Render Blueprint — one click creates everything (Dashboard → New → Blueprint → pick this repo).
+#
+# Free-plan layout ("combined mode"): Render's free tier has no background workers, so the single
+# web service runs the API AND the queue workers in one process (RUN_WORKERS_IN_API=true).
+# Locally and in docker-compose they are separate processes; the code path is identical.
+#
+# Free-tier caveats: the web service sleeps after ~15 min idle (first request ~50 s to wake;
+# scheduled jobs fire once it is awake again), and the free Postgres expires after 30 days.
+services:
+  - type: web
+    name: bulk-charge-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bulk-charge-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: bulk-charge-redis
+          property: connectionString
+      - key: MIGRATE_ON_START # free plan has no pre-deploy command: migrate + seed at boot (idempotent)
+        value: "true"
+      - key: RUN_WORKERS_IN_API
+        value: "true"
+      - key: TENANT_RATE_LIMIT_PER_MIN
+        value: "5000"
+      - key: BATCH_SIZE
+        value: "100"
+      - key: WORKER_CONCURRENCY
+        value: "2" # free instance has a small CPU share
+      - key: LEASE_TTL_SECONDS
+        value: "60"
+
+  - type: keyvalue # Render's managed Redis-compatible store (BullMQ + rate limiter)
+    name: bulk-charge-redis
+    plan: free
+    maxmemoryPolicy: noeviction # BullMQ requires noeviction: queued jobs must never be evicted
+    ipAllowList: [] # internal network only
+
+databases:
+  - name: bulk-charge-db
+    plan: free
+    databaseName: bulk_charge
+    user: shipmnts

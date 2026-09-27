@@ -1,0 +1,77 @@
+x-app-env: &app-env
+  DATABASE_URL: postgresql://shipmnts:shipmnts@postgres:5432/bulk_charge?connection_limit=20
+  REDIS_URL: redis://redis:6379
+  BATCH_SIZE: ${BATCH_SIZE:-100}
+  TENANT_RATE_LIMIT_PER_MIN: ${TENANT_RATE_LIMIT_PER_MIN:-5000}
+  LEASE_TTL_SECONDS: ${LEASE_TTL_SECONDS:-60}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+  BULK_DEBUG_ENTITY_DELAY_MS: ${BULK_DEBUG_ENTITY_DELAY_MS:-0} # demo only: slow each entity
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shipmnts
+      POSTGRES_PASSWORD: shipmnts
+      POSTGRES_DB: bulk_charge
+    ports:
+      - "5433:5432" # 5433 on the host so it does not clash with a local Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shipmnts -d bulk_charge"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"] # AOF: queued/delayed work survives a Redis restart
+    ports:
+      - "6380:6379" # 6380 on the host so it does not clash with a local Redis
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # Runs migrations + idempotent seed once, then exits. api/worker wait for it.
+  migrate:
+    build: .
+    command: sh -c "./node_modules/.bin/prisma migrate deploy && node dist/seed/seed.js"
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    command: node dist/main.js
+    ports:
+      - "3000:3000"
+    environment:
+      <<: *app-env
+      PORT: 3000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: node dist/worker.js
+    environment: *app-env
+    stop_grace_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    # scale with: docker compose up -d --scale worker=3
+
+volumes:
+  pgdata:
+  redisdata:
