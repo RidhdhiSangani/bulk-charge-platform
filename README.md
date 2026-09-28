@@ -26,7 +26,7 @@ The numbered arrows follow the life of one bulk job, and the panel on the left e
 
 | System architecture | Batch processing and state machines |
 |---|---|
-| [![System architecture](architecture-system.png)](architecture-system.png) | [![Batch flow](architecture-batch-flow.png)](architecture-batch-flow.png) |
+| [![System architecture](architecture-system.png)](architecture-system.png) | [![Batch flow](docs/architecture-batch-flow.png)](docs/architecture-batch-flow.png) |
 
 ## Documentation
 
