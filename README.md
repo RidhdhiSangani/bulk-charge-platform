@@ -13,9 +13,20 @@ A bulk action engine for a freight-forwarding system. A job selects shipments **
 
 | | |
 |---|---|
-| 🌐 **Live demo** | `https://<your-service>.onrender.com`: [`/docs`](https://<your-service>.onrender.com/docs) (Swagger) · [`/health`](https://<your-service>.onrender.com/health). Free tier: the first request after ~15 min idle takes ~50 s to wake. |
 | 📮 **Postman** | [postman/Bulk-Jobs.postman_collection.json](postman/Bulk-Jobs.postman_collection.json): 34 requests, plus Local and Live environments |
-| 🎥 **Loom** | `<link>` |
+| 🎥 **Loom** | `https://drive.google.com/file/d/1ulbpWmpJQpChVEqsJ6M_T_TLewFA_yiS/view?usp=drive_link` |
+
+## Architecture
+
+![System architecture](docs/architecture-system.png)
+
+The numbered arrows follow the life of one bulk job, and the panel on the left explains each step. Page 2 is the batch-processing flow and the state machines: [docs/architecture-batch-flow.png](docs/architecture-batch-flow.png). The editable source for both pages is [docs/architecture.drawio](docs/architecture.drawio); open it at [app.diagrams.net](https://app.diagrams.net) or in the VS Code *Draw.io Integration* extension.
+
+**Detailed diagrams** (editable source: [architecture.drawio](architecture.drawio), 2 pages):
+
+| System architecture | Batch processing and state machines |
+|---|---|
+| [![System architecture](architecture-system.png)](architecture-system.png) | [![Batch flow](architecture-batch-flow.png)](architecture-batch-flow.png) |
 
 ## Documentation
 
